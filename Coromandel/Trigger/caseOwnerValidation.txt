@@ -1,0 +1,21 @@
+trigger caseOwnerValidation on Case (before update, after update,before insert, after insert) {
+    if(Trigger.isBefore && Trigger.isInsert){
+        CaseWorkOrderHandler.handleCaseAssignmentsNutriClinic(Trigger.New);
+        CaseWorkOrderHandler.handleCaseAssignmentsForAssetIssue(Trigger.New);
+    
+    }
+    if(Trigger.isBefore && Trigger.isUpdate){
+        CaseWorkOrderHandler.handleCaseAssignmentsLabTechnician(Trigger.New);
+    }
+    if(Trigger.isAfter && Trigger.isUpdate){
+        CaseWorkOrderHandler.sendNotificationOnOwnerChange(Trigger.new, Trigger.oldMap);
+        CaseWorkOrderHandler.handleCaseAssignmentsLabTechniciann(Trigger.New);
+    }
+    
+    if(Trigger.isAfter && Trigger.isInsert){
+        CaseWorkOrderHandler.sendNotificationAfterinsertCase(Trigger.new);  
+        CaseWorkOrderHandler.sendEmailNotificationAfterNutri(Trigger.New);
+        CaseWorkOrderHandler.sendNotificationAfterinsertCaseTheAssetIssue(Trigger.new);
+        CaseWorkOrderHandler.sendEmailNotificationForAssetIssue(Trigger.New);
+    }
+}

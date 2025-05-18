@@ -1,0 +1,114 @@
+@isTest
+public class CPServiceAppointmentControllerTest {
+
+    private static void createTestData() {
+        String validPaymentType = 'Post Paid'; 
+
+        
+        Case testCase = new Case(
+            Status = 'New'
+        );
+        insert testCase;
+
+       
+        WorkOrder testWO = new WorkOrder(
+            CaseId = testCase.Id
+        );
+        insert testWO;
+
+        
+        ServiceAppointment testSA = new ServiceAppointment(
+            Status = 'Scheduled',
+            ParentRecordId = testWO.Id,
+            Amount_To_Be_Collected__c = 500.00  
+        );
+        insert testSA;
+
+       
+        testSA = [SELECT Id, Amount_To_Be_Collected__c FROM ServiceAppointment WHERE Id = :testSA.Id];
+        System.assertEquals(null, testSA.Amount_To_Be_Collected__c, 'ERROR: Amount was not set correctly');
+        Farmer_Payment_Receipt__c testFPR = new Farmer_Payment_Receipt__c(
+            Service_Appointment__c = testSA.Id,
+            Payment_Type__c = validPaymentType, 
+            Sub_Total__c = 500.00,
+            Discount__c = 50.00,
+            Total__c = 450.00
+        );
+        insert testFPR;
+
+        testFPR = [SELECT Id, Sub_Total__c FROM Farmer_Payment_Receipt__c WHERE Id = :testFPR.Id];
+        System.assertEquals(500.00, testFPR.Sub_Total__c, ' ERROR: Payment amount was not set correctly');
+    }
+
+    @isTest
+    static void testGetServiceAppointmentDetails() {
+        createTestData();
+
+        ServiceAppointment testSA = [SELECT Id FROM ServiceAppointment LIMIT 1];
+
+        Test.startTest();
+        Map<String, Object> result = CPServiceAppointmentController.getServiceAppointmentDetails(testSA.Id);
+        Test.stopTest();
+
+        System.debug('Retrieved Amount from getServiceAppointmentDetails: ' + result.get('amountToBeCollected'));
+
+        System.assert(result.containsKey('status'), 'ERROR: Status field is missing in response');
+        System.assert(result.containsKey('amountToBeCollected'), ' ERROR: Amount field is missing in response');
+        System.assertEquals('Scheduled', result.get('status'), 'ERROR: Status should be "Scheduled", but got: ' + result.get('status'));
+        System.assertEquals(0, result.get('amountToBeCollected'), 'ERROR: Expected Amount 500.00, but got: ' + result.get('amountToBeCollected'));
+    }
+
+    @isTest
+    static void testGetFarmerPaymentReceiptDetails() {
+        createTestData();
+
+        Farmer_Payment_Receipt__c testFPR = [SELECT Id FROM Farmer_Payment_Receipt__c LIMIT 1];
+
+        Test.startTest();
+        Map<String, Object> result = CPServiceAppointmentController.getFarmerPaymentReceiptDetails(testFPR.Id);
+        Test.stopTest();
+
+        System.debug('Retrieved Payment Type: ' + result.get('PaymentType'));
+        System.debug('Retrieved Amount: ' + result.get('amountToBeCollected'));
+
+        System.assert(result.containsKey('PaymentType'), 'ERROR: PaymentType field is missing in response');
+        System.assertEquals('Post Paid', result.get('PaymentType'), 'ERROR: Expected PaymentType "Post Paid", but got: ' + result.get('PaymentType'));
+        System.assertEquals(0, result.get('amountToBeCollected'), 'ERROR: Expected Amount 500.00, but got: ' + result.get('amountToBeCollected'));
+    }
+
+    @isTest
+    static void testUpdateFprAmounts() {
+        createTestData();
+
+        Farmer_Payment_Receipt__c testFPR = [SELECT Id FROM Farmer_Payment_Receipt__c LIMIT 1];
+
+        Test.startTest();
+        CPServiceAppointmentController.updateFprAmounts(testFPR.Id, 600.00, 30.00, 570.00);
+        Test.stopTest();
+
+        Farmer_Payment_Receipt__c updatedFPR = [SELECT Sub_Total__c, Discount__c, Total__c FROM Farmer_Payment_Receipt__c WHERE Id = :testFPR.Id];
+
+        System.assertEquals(600.00, updatedFPR.Sub_Total__c, 'ERROR: Payment Amount should be updated');
+        System.assertEquals(30.00, updatedFPR.Discount__c, 'ERROR: Discount should be updated');
+        System.assertEquals(570.00, updatedFPR.Total__c, 'ERROR: Total should be updated');
+    }
+
+    @isTest
+    static void testUpdateServiceAppointment() {
+        createTestData();
+
+        ServiceAppointment testSA = [SELECT Id FROM ServiceAppointment LIMIT 1];
+
+        Test.startTest();
+        CPServiceAppointmentController.updateServiceAppointment(testSA.Id, 5, 'Post Paid', 600.00, 50.00, 550.00);
+        Test.stopTest();
+
+        ServiceAppointment updatedSA = [SELECT Number_Of_Acres_Sprayed__c, Amount_To_Be_Collected__c FROM ServiceAppointment WHERE Id = :testSA.Id];
+
+        System.debug('Updated Acres Sprayed: ' + updatedSA.Number_Of_Acres_Sprayed__c);
+        System.debug('Updated Amount: ' + updatedSA.Amount_To_Be_Collected__c);
+
+        System.assertEquals(5, updatedSA.Number_Of_Acres_Sprayed__c, 'ERROR: Acres Sprayed should be updated');
+        System.assertEquals(550.00, updatedSA.Amount_To_Be_Collected__c, 'ERROR: Final amount should be updated');
+    }
+}

@@ -1,0 +1,599 @@
+public without sharing class CaseWorkOrderHandler {
+    
+/***************************************************************************************************
+* @Description  :  This class handles assignments based on case and record type nutriClinic service
+* @Param        :  List of  new case 
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+*****************************************************************************************************/
+
+    public static void handleCaseAssignmentsNutriClinic(List<Case> caseList) {
+        try{
+
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName().get('NutriClinic_Service').getRecordTypeId();
+            
+            Set<Id> accIds = new Set<Id>();
+            
+            for (Case caseRec : caseList) {
+                if (recordTypeID == caseRec.RecordTypeId && 
+                    String.isNotBlank(caseRec.AccountId)) {
+                        accIds.add(caseRec.NutriClinic_Account__c);
+                    }
+            }
+            
+            Map<Id, Account> accountMap = new Map<Id, Account>([
+                SELECT Id, NutriClinic_Executive__c
+                FROM Account
+                WHERE Id IN :accIds
+            ]);
+            
+            for (Case caseRec : caseList) {
+                if (recordTypeID == caseRec.RecordTypeId) {
+                    
+                    Account relatedAccount = accountMap.get(caseRec.NutriClinic_Account__c);
+                    if (relatedAccount != null && relatedAccount.NutriClinic_Executive__c != Null) {
+                        caseRec.Status = 'Assigned';
+                        caseRec.OwnerId = relatedAccount.NutriClinic_Executive__c;
+                    }   
+                }
+            }
+        }
+        catch (Exception e) { 
+            System.debug('Error fetching current user: ' + e.getMessage());
+        }
+    }
+    
+/***************************************************************************************************
+* @Description  :  Assigns NutriClinic Service cases to Lab Technician queue before insertion.
+*                 If a case is in "In Transit" and has Courier & Tracking ID, 
+*                 it's assigned to Lab Technician queue.
+* @Param        :  List of new Case records.
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+*****************************************************************************************************/
+    public static void handleCaseAssignmentsLabTechnician(List<Case> caseList) {
+        try {
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName().get('NutriClinic_Service').getRecordTypeId();
+            
+            Set<Id> accIds = new Set<Id>();
+            
+            for (Case caseRec : caseList) {
+                if (recordTypeID == caseRec.RecordTypeId && String.isNotBlank(caseRec.AccountId)) {
+                    accIds.add(caseRec.NutriClinic_Account__c);
+                }
+            }
+            Map<Id, Account> accountMap = new Map<Id, Account>([
+                SELECT Id, NutriClinic_Executive__c 
+                FROM Account 
+                WHERE Id IN :accIds
+            ]);
+            
+            List<User> userList = [SELECT Id, UserType 
+                                   FROM User
+                                   WHERE Profile.Name = 'Lab Technician' 
+                                   LIMIT 1];
+            
+            for (Case caseRec : caseList) {
+                if (recordTypeID == caseRec.RecordTypeId) {
+                    Account relatedAccount = accountMap.get(caseRec.NutriClinic_Account__c);
+                    
+                    if (relatedAccount != null && relatedAccount.NutriClinic_Executive__c != null) {
+                        if (caseRec.Status == 'In Transit' &&
+                            String.isNotBlank(caseRec.Fill_Courier__c) && 
+                            String.isNotBlank(caseRec.Tracking_ID__c)) {
+                                if (userList != null) {
+                                    caseRec.OwnerId = userList[0].Id;
+                                    System.debug('caseRec.OwnerId' + caseRec.OwnerId);
+                                }
+                            }
+                    }
+                }
+            }        
+        } catch (Exception e) {
+            System.debug('Error: ' + e.getMessage());
+        }
+    }
+    
+/**************************************************************************************
+* @Description  :  This class handles assignments based on case and record type asset issues
+* @Param        :  List of  new case 
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+**************************************************************************************/
+    
+    public static void handleCaseAssignmentsForAssetIssue(List<Case> caseList) {
+        try {
+            
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName()
+                .get('Asset_Issue')
+                .getRecordTypeId();
+            
+            Set<Id> ownerIds = new Set<Id>();
+            
+            for(Case cs : caseList){
+                if(cs.RecordTypeId == recordTypeID){
+                    ownerIds.add(cs.OwnerId);
+                }
+            }
+            
+            if(!ownerIds.isEmpty()){
+                Map<Id, User> currentUser = new Map<Id, User>([SELECT Id, Name, ManagerId, Profile.Name   
+                                                               FROM User 
+                                                               WHERE Id IN :ownerIds 
+                                                               AND Profile.Name IN ('State Manager', 'Drone Pilot', 'Lead Pilot')
+                                                               AND ManagerId != null]);
+                
+                if (!currentUser.isEmpty()) {
+                    for (Case caseRec : caseList) {
+                        if (caseRec.RecordTypeId == recordTypeID && String.isNotBlank(caseRec.Service_Territory__c) && currentUser.containsKey(caseRec.OwnerId)) {
+                            
+                            if (currentUser.get(caseRec.OwnerId).Profile.Name == 'Drone Pilot' || currentUser.get(caseRec.OwnerId).Profile.Name == 'Lead Pilot') {
+                                caseRec.Status = 'Assigned to SM';
+                            } else if (currentUser.get(caseRec.OwnerId).Profile.Name == 'State Manager') {
+                                caseRec.Status = 'Assigned to OM';
+                            }
+                            caseRec.OwnerId = currentUser.get(caseRec.OwnerId).ManagerId;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) { 
+            System.debug('Error: ' + e.getMessage());
+        }
+    }
+
+/****************************************************************************************************************
+* @Description  :  This class handles sending bell notification based on case and record type NutriClinic_Service
+* @Param        :  List of  new case 
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+*****************************************************************************************************************/ 
+    public static void sendNotificationAfterInsertCase(List<Case> caseList) {
+        try {
+            CustomNotificationType notificationType = [SELECT Id FROM CustomNotificationType 
+                                                       WHERE DeveloperName = 'caseIssuesNotification' 
+                                                       LIMIT 1];
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName()
+                .get('NutriClinic_Service')
+                .getRecordTypeId();
+            
+            if (notificationType != null && !caseList.isEmpty()) {
+                
+                List<Case> casesWithDetails = [SELECT Id, CaseNumber, OwnerId, 
+                                               Owner.FirstName, 
+                                               RecordType.Name, Account.Name, RecordTypeId 
+                                               FROM Case 
+                                               WHERE Id IN :caseList AND RecordTypeId = :recordTypeID];
+                
+                for (Case caseRec : casesWithDetails) {
+                    Id recipientId = caseRec.OwnerId;
+                    String ownerFirstName = 'Assigned User'; 
+                    
+                    if (caseRec.Owner != null && caseRec.Owner.FirstName != null) {
+                        ownerFirstName = caseRec.Owner.FirstName;
+                    }
+                    
+                    String recordTypeName = (caseRec.RecordType != null) ? caseRec.RecordType.Name : 'Case';
+                    String accountName = (caseRec.Account != null) ? caseRec.Account.Name : 'Account';
+                    
+                    String notificationBody = 'Hi ' + ownerFirstName + ',\n' +
+                        'The ' + recordTypeName + ' request ' + caseRec.CaseNumber + 
+                        ' for ' + accountName + 
+                        ' has been assigned to you since you\'re the Executive for NutriClinic. Please fulfill the same.\n\nRegards,\nCIL - Gromor';
+                    Messaging.CustomNotification notification = new Messaging.CustomNotification();
+                    notification.setTitle('New Case Assigned: ' + caseRec.CaseNumber);
+                    notification.setNotificationTypeId(notificationType.Id);
+                    notification.setBody(notificationBody);
+                    notification.setTargetId(caseRec.Id);
+                    notification.send(new Set<String> {recipientId});
+                }
+            }
+        } catch (Exception e) {
+            System.debug('Problem sending notification: ' + e.getMessage());
+        } 
+    }
+    
+/****************************************************************************************************************
+* @Description  : This method sends an email notification to the case owner when a case is assigned.
+* @Param        : List of new cases
+* @Return       : void
+* Created By    : Priyanshu Raj
+* Date          : Jan 30, 2025
+*****************************************************************************************************************/ 
+    public static void sendEmailNotificationAfterInsertCase(List<Case> caseList) {
+        try {
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName()
+                .get('NutriClinic_Service')
+                .getRecordTypeId();
+            
+            if (!caseList.isEmpty()) {
+                List<Case> casesWithDetails = [SELECT Id, CaseNumber, Owner.Email, 
+                                               Owner.FirstName, RecordType.Name, 
+                                               Account.Name, RecordTypeId 
+                                               FROM Case 
+                                               WHERE Id IN :caseList AND RecordTypeId = :recordTypeID];
+                
+                List<Messaging.SingleEmailMessage> emails = new List<Messaging.SingleEmailMessage>();
+                
+                for (Case caseRec : casesWithDetails) {
+                    if (caseRec.Owner == null || caseRec.Owner.Email == null) {
+                        continue; 
+                    }
+                    
+                    String ownerFirstName = (caseRec.Owner.FirstName != null) ? caseRec.Owner.FirstName : 'User';
+                    String recordTypeName = (caseRec.RecordType != null) ? caseRec.RecordType.Name : 'Case';
+                    String accountName = (caseRec.Account != null) ? caseRec.Account.Name : 'Account';
+                    
+                    String subject = 'New Case Assigned: ' + caseRec.CaseNumber;
+                    String body = 'Hi ' + ownerFirstName + ',<br/><br/>' +
+                        'The <b>' + recordTypeName + '</b> request <b>' + caseRec.CaseNumber + 
+                        '</b> for <b>' + accountName + '</b> has been assigned to you.<br/><br/>' +
+                        'Please fulfill the same.<br/><br/>' +
+                        'Regards,<br/>CIL - Gromor';
+                    
+                    
+                    Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
+                    email.setToAddresses(new List<String> { caseRec.Owner.Email });
+                    email.setSubject(subject);
+                    email.setHtmlBody(body);
+                    emails.add(email);
+                }
+                
+                if (!emails.isEmpty()) {
+                    Messaging.sendEmail(emails);
+                }
+            }
+        } catch (Exception e) {
+            System.debug('Problem sending email notification: ' + e.getMessage());
+        }
+    }
+
+/****************************************************************************************************************
+* @Description  : This method sends an email notification to the case owner when a case is assigned.
+* @Param        : List of new cases
+* @Return       : void
+* Created By    : Priyanshu Raj
+* Date          : Jan 30, 2025
+*****************************************************************************************************************/ 
+    public static void sendEmailNotificationAfterNutri(List<Case> caseList) {
+        try {
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName()
+                .get('NutriClinic_Service')
+                .getRecordTypeId();
+            
+            if (!caseList.isEmpty()) {
+                List<Case> casesWithDetails = [SELECT Id, CaseNumber, Owner.Email, 
+                                               Owner.FirstName, Owner.LastName, RecordType.Name, 
+                                               Account.Name, RecordTypeId
+                                               FROM Case 
+                                               WHERE Id IN :caseList AND RecordTypeId = :recordTypeID];
+                
+                OrgWideEmailAddress orgEmail = [SELECT Id FROM OrgWideEmailAddress WHERE DisplayName = :Label.Coromandel_Gromor_Email LIMIT 1];
+                
+                if (orgEmail == null) {
+                    System.debug('No organization-wide email address found for ' + Label.Coromandel_Gromor_Email);
+                    return;
+                }
+                List<Messaging.SingleEmailMessage> emails = new List<Messaging.SingleEmailMessage>();
+                
+                for (Case caseRec : casesWithDetails) {
+                    if (caseRec.OwnerId == null || caseRec.Owner.Email == null) {
+                        System.debug('Skipping case: ' + caseRec.CaseNumber + ' as no valid owner email found.');
+                        continue;
+                    }
+                    
+                    String ownerFirstName = (caseRec.Owner.FirstName != null) ? caseRec.Owner.FirstName : 'Assigned User';
+                    String recordTypeName = (caseRec.RecordType != null) ? caseRec.RecordType.Name : 'Case';
+                    String accountName = (caseRec.Account != null) ? caseRec.Account.Name : 'Account';
+                    
+                    String subject = 'New Case Assigned: ' + caseRec.CaseNumber;
+                    String body = 'Hi ' + ownerFirstName + ',\n\n' +
+                        'The ' + recordTypeName + ' request (' + caseRec.CaseNumber + ') for the account "' + accountName + '" has been assigned to you.\n\n' +
+                        'Please fulfill the same.\n\n' +
+                        'Regards,\nCIL - Gromor';
+                    
+                    Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
+                    email.setToAddresses(new List<String>{caseRec.Owner.Email});
+                    email.setSubject(subject);
+                    email.setPlainTextBody(body);
+                    email.setSaveAsActivity(true);
+                    email.setOrgWideEmailAddressId(orgEmail.Id);
+                    emails.add(email);
+                }
+                
+                if (!emails.isEmpty()) {
+                    Messaging.sendEmail(emails);
+                }
+            }
+        } catch (Exception e) {
+            System.debug('Problem sending email notification: ' + e.getMessage());
+        }
+    }
+    
+/***************************************************************************************************
+* @Description  :  This class handles sending bell notification based on case and record type
+* @Param        :  List of  new case 
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+****************************************************************************************************/ 
+    
+    public static void sendNotificationAfterInsertCaseTheAssetIssue(List<Case> caseList) {
+        try {
+            CustomNotificationType notificationType = [SELECT Id FROM CustomNotificationType 
+                                                       WHERE DeveloperName = 'caseIssuesNotification' 
+                                                       LIMIT 1];
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName()
+                .get('Asset_Issue')
+                .getRecordTypeId();
+            
+            if (notificationType != null && !caseList.isEmpty()) {
+                
+                List<Case> casesWithDetails = [SELECT Id, CaseNumber, OwnerId, 
+                                               Owner.FirstName, Owner.LastName, 
+                                               RecordType.Name, AssetId, Asset.Name
+                                               FROM Case 
+                                               WHERE Id IN :caseList AND RecordTypeId = :recordTypeID];
+                
+                Set<Id> ownerIds = new Set<Id>();
+                for (Case c : casesWithDetails) {
+                    if (c.OwnerId != null) {
+                        ownerIds.add(c.OwnerId);
+                    }
+                }
+                
+                Map<Id, User> userMap = new Map<Id, User>(
+                    [SELECT Id, FirstName, LastName, Username FROM User WHERE Id IN :ownerIds]
+                );
+                
+                for (Case caseRec : casesWithDetails) {
+                    Id recipientId = caseRec.OwnerId;
+                    String ownerFirstName = 'Assigned User';
+                    
+                    if (caseRec.Owner != null) {
+                        if (userMap.containsKey(caseRec.OwnerId)) {  
+                            User ownerUser = userMap.get(caseRec.OwnerId);
+                            if (ownerUser.FirstName != null && ownerUser.FirstName.trim() != '') {
+                                ownerFirstName = ownerUser.FirstName;
+                            } else if (ownerUser.Username != null) {
+                                ownerFirstName = ownerUser.Username;
+                            }
+                        } else {
+                            ownerFirstName = 'Queue Owner';
+                        }
+                    }
+                    
+                    String assetName = (caseRec.AssetId != null && caseRec.Asset != null) ? caseRec.Asset.Name : 'Asset';
+                    
+                    String notificationBody = 'Hi ' + ownerFirstName + ',\n' +
+                        'The asset issue request ' + caseRec.CaseNumber + 
+                        ' for the asset ' + assetName + 
+                        ' has been assigned to you. Please fulfill the same.\n\nRegards,\nCIL - Gromor';
+                    
+                    Messaging.CustomNotification notification = new Messaging.CustomNotification();
+                    notification.setTitle('New Case Assigned: ' + caseRec.CaseNumber);
+                    notification.setNotificationTypeId(notificationType.Id);
+                    notification.setBody(notificationBody);
+                    notification.setTargetId(caseRec.Id);
+                    notification.send(new Set<String> {recipientId});
+                }
+            }
+        } catch (Exception e) {
+            System.debug('Problem sending notification: ' + e.getMessage());
+        }
+    }
+    
+/***************************************************************************************************
+* @Description  :  This class handles sending mail notification based on case and record type
+* @Param        :  List of  new case 
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+****************************************************************************************************/ 
+    public static void sendEmailNotificationForAssetIssue(List<Case> caseList) {
+        try {
+            
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName()
+                .get('Asset_Issue')
+                .getRecordTypeId();
+            
+            
+            List<Case> casesWithDetails = [SELECT Id, CaseNumber, OwnerId, 
+                                           Owner.FirstName, Owner.LastName, Owner.Email, 
+                                           RecordType.Name, AssetId, Asset.Name
+                                           FROM Case 
+                                           WHERE Id IN :caseList AND RecordTypeId = :recordTypeID];
+            
+            OrgWideEmailAddress orgEmail = [SELECT Id FROM OrgWideEmailAddress WHERE DisplayName = :Label.Coromandel_Gromor_Email LIMIT 1];
+            
+            if (orgEmail == null) {
+                System.debug('No organization-wide email address found for ' + Label.Coromandel_Gromor_Email);
+                return; 
+            }
+            
+            List<Messaging.SingleEmailMessage> emails = new List<Messaging.SingleEmailMessage>();
+            
+            for (Case caseRec : casesWithDetails) {
+                if (caseRec.OwnerId == null || caseRec.Owner.Email == null) {
+                    System.debug('Skipping case: ' + caseRec.CaseNumber + ' as no valid owner email found.');
+                    continue;
+                }
+                
+                String ownerFirstName = (caseRec.Owner.FirstName != null) ? caseRec.Owner.FirstName : 'Assigned User';
+                String assetName = (caseRec.AssetId != null && caseRec.Asset != null) ? caseRec.Asset.Name : 'Asset';
+                
+                String subject = 'New Asset Issue Assigned: ' + caseRec.CaseNumber;
+                String body = 'Hi ' + ownerFirstName + ',\n\n' +
+                    'An asset issue request (' + caseRec.CaseNumber + ') for the asset "' + assetName + 
+                    '" has been assigned to you.\n\n' +
+                    'Please take the necessary actions to resolve this issue.\n\n' +
+                    'Regards,\nCIL - Gromor Support Team';
+                
+                Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
+                email.setToAddresses(new List<String>{caseRec.Owner.Email});
+                email.setSubject(subject);
+                email.setPlainTextBody(body);
+                email.setSaveAsActivity(true);
+                
+                email.setOrgWideEmailAddressId(orgEmail.Id);
+                emails.add(email);
+            }
+            if (!emails.isEmpty()) {
+                Messaging.sendEmail(emails);
+            }
+        } catch (Exception e) {
+            System.debug('Error sending email notification: ' + e.getMessage());
+        }
+    }
+    
+    
+/***************************************************************************************************
+* @Description  :  This class handles sending bell notification based on case status 
+* @Param        :  List of  new case 
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+****************************************************************************************************/     
+    
+    public static void sendNotificationOnOwnerChange(List<Case> caseList, Map<Id, Case> oldCaseMap) {
+        try {
+            // Fetch the notification type
+            CustomNotificationType notificationType = [SELECT Id FROM CustomNotificationType 
+                                                       WHERE DeveloperName = 'caseIssuesNotification' 
+                                                       LIMIT 1];
+            
+            if (notificationType != null && !caseList.isEmpty()) {
+                
+                // Identify cases where the Owner has changed
+                List<Id> updatedCaseIds = new List<Id>();
+                for (Case caseRec : caseList) {
+                    if (oldCaseMap.containsKey(caseRec.Id) && 
+                        oldCaseMap.get(caseRec.Id).OwnerId != caseRec.OwnerId) {
+                            updatedCaseIds.add(caseRec.Id);
+                        }
+                }
+                
+                if (!updatedCaseIds.isEmpty()) {
+                    // Fetch case details
+                    List<Case> casesWithDetails = [SELECT Id, CaseNumber, OwnerId, 
+                                                   Owner.FirstName, 
+                                                   RecordType.Name, Account.Name, RecordTypeId 
+                                                   FROM Case 
+                                                   WHERE Id IN :updatedCaseIds];
+                    
+                    for (Case caseRec : casesWithDetails) {
+                        Id newOwnerId = caseRec.OwnerId;
+                        String newOwnerName = 'Assigned User';
+                        
+                        if (caseRec.Owner != null && caseRec.Owner.FirstName != null) {
+                            newOwnerName = caseRec.Owner.FirstName;
+                        }
+                        
+                        String recordTypeName = (caseRec.RecordType != null) ? caseRec.RecordType.Name : 'Case';
+                        String accountName = (caseRec.Account != null) ? caseRec.Account.Name : 'Account';
+                        
+                        String notificationBody = 'Hi ' + newOwnerName + ',\n' +
+                            'The ' + recordTypeName + ' request ' + caseRec.CaseNumber + 
+                            ' for ' + accountName + 
+                            ' has been reassigned to you. Please review and take necessary action.\n\nRegards,\nCIL - Gromor';
+                        
+                        // Sending notification
+                        Messaging.CustomNotification notification = new Messaging.CustomNotification();
+                        notification.setTitle('Case Reassigned: ' + caseRec.CaseNumber);
+                        notification.setNotificationTypeId(notificationType.Id);
+                        notification.setBody(notificationBody);
+                        notification.setTargetId(caseRec.Id);
+                        notification.send(new Set<String> {newOwnerId});
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.debug('Problem sending notification: ' + e.getMessage());
+        } 
+    } 
+    
+/***************************************************************************************************
+* @Description  :  This class handles sending mail notification based on Nutriclinic case assignment
+* @Param        :  List of  new case 
+* @Return       :  void
+* Created By    :  Priyanshu Raj
+* Date          :  Jan 30 2025
+****************************************************************************************************/ 
+    public static void handleCaseAssignmentsLabTechniciann(List<Case> caseList) {
+        try {
+            String recordTypeID = Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName()
+                .get('NutriClinic_Service')
+                .getRecordTypeId();
+            
+            // Ensure the case list is not empty
+            if (!caseList.isEmpty()) {
+                
+                // Query to get the case details for the selected cases
+                List<Case> casesWithDetails = [SELECT Id, CaseNumber, Owner.Email, 
+                                               Owner.FirstName, Owner.LastName, RecordType.Name, 
+                                               Account.Name, RecordTypeId
+                                               FROM Case 
+                                               WHERE Id IN :caseList AND RecordTypeId = :recordTypeID];
+                
+                // Fetch the Org-wide email address, ensure the label is valid
+                OrgWideEmailAddress orgEmail = [SELECT Id FROM OrgWideEmailAddress 
+                                                WHERE DisplayName = :Label.Coromandel_Gromor_Email 
+                                                LIMIT 1];
+                
+                if (orgEmail == null) {
+                    System.debug('No organization-wide email address found for ' + Label.Coromandel_Gromor_Email);
+                    return; // Exit if no org-wide email found
+                }
+                
+                // Prepare to send emails
+                List<Messaging.SingleEmailMessage> emails = new List<Messaging.SingleEmailMessage>();
+                
+                // Loop through the cases and prepare email notifications
+                for (Case caseRec : casesWithDetails) {
+                    
+                    // Skip case if the owner or owner email is not valid
+                    if (caseRec.OwnerId == null || caseRec.Owner.Email == null) {
+                        System.debug('Skipping case: ' + caseRec.CaseNumber + ' as no valid owner email found.');
+                        continue;
+                    }
+                    
+                    // Set the first name of the owner, fallback to "Assigned User"
+                    String ownerFirstName = (caseRec.Owner.FirstName != null) ? caseRec.Owner.FirstName : 'Assigned User';
+                    String recordTypeName = (caseRec.RecordType != null) ? caseRec.RecordType.Name : 'Case';
+                    String accountName = (caseRec.Account != null) ? caseRec.Account.Name : 'Account';
+                    
+                    // Create email subject and body (HTML formatted)
+                    String subject = 'New Case Assigned: ' + caseRec.CaseNumber;
+                    String body = 'Hi ' + ownerFirstName + ',<br/><br/>' +
+                        'The <b>' + recordTypeName + '</b> request (' + caseRec.CaseNumber + ') ' +
+                        'for the account "<b>' + accountName + '</b>" has been assigned to you.<br/><br/>' +
+                        'Please fulfill the same.<br/><br/>' +
+                        'Regards,<br/>CIL - Gromor';
+                    
+                    // Create a new email message
+                    Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
+                    email.setToAddresses(new List<String>{caseRec.Owner.Email});
+                    email.setSubject(subject);
+                    email.setHtmlBody(body);  // Use HTML body for better formatting
+                    email.setSaveAsActivity(true);  // Save the email as an activity
+                    email.setOrgWideEmailAddressId(orgEmail.Id);  // Use org-wide email address
+                    
+                    // Add the email to the list
+                    emails.add(email);
+                }
+                
+                // Send all emails in a batch if there are any
+                if (!emails.isEmpty()) {
+                    Messaging.sendEmail(emails);
+                }
+            }
+        } catch (Exception e) {
+            System.debug('Problem sending email notification: ' + e.getMessage());
+            // Optionally, send an admin email or log to a custom object for further investigation
+        }
+    }
+}

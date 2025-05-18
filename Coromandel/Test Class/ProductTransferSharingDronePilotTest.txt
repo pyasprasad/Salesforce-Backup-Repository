@@ -1,0 +1,99 @@
+@isTest
+public class ProductTransferSharingDronePilotTest {
+
+    @testSetup
+    static void setupTestData() { 
+        Profile profile = [SELECT Id FROM Profile WHERE Name = 'System Administrator'];
+
+        User managerUser = new User(
+            FirstName = 'Manager',
+            LastName = 'User',
+            ProfileId = profile.Id,
+            Username = 'manager@testar.com',
+            Email = 'manager@test.com',
+            Alias = 'mgrusr',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'America/Los_Angeles'
+        );
+        insert managerUser;
+
+        User user = new User(
+            FirstName = 'Test',
+            LastName = 'User',
+            ProfileId = profile.Id,
+            Username = 'user@testar.com',
+            Email = 'testar@test.com',
+            Alias = 'testu',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'America/Los_Angeles',
+            ManagerId = managerUser.Id
+        );
+        insert user;
+
+        System.runAs(user) {
+            Product2 newProduct = new Product2(
+                Name = 'Bajaj Agriculture Drone3',
+                Family = 'Bajaj',
+                ProductCode = 'BJ1001',
+                IsActive = true
+            );
+            insert newProduct;
+
+            ProductRequest pr = new ProductRequest(
+                OwnerId = user.Id
+            );
+            insert pr;
+
+            ProductRequestLineItem prli = new ProductRequestLineItem(
+                Product2Id = newProduct.Id,
+                QuantityRequested = 23,
+                ParentId = pr.Id
+            );
+            insert prli;  
+        }
+    }
+
+    @isTest
+    static void testDMLOnly() {
+        Test.startTest();
+        
+        ProductRequestLineItem prli = [SELECT Id, Product2Id FROM ProductRequestLineItem LIMIT 1];
+
+        // Create a list of ProductTransfer records
+        List<ProductTransfer> productTransfers = new List<ProductTransfer>();
+
+        ProductTransfer pt1 = new ProductTransfer(
+            Product2Id = prli.Product2Id,
+            QuantitySent = 4,
+            Status = 'In Progress',
+            ProductRequestLineItemId = prli.Id
+        );
+        productTransfers.add(pt1);
+
+        ProductTransfer pt2 = new ProductTransfer(
+            Product2Id = prli.Product2Id,
+            QuantitySent = 2,
+            Status = 'Completed',
+            ProductRequestLineItemId = prli.Id    
+        );
+        productTransfers.add(pt2);
+
+        // Insert the ProductTransfer records
+        insert productTransfers;
+
+        // Verify the ProductTransfer records
+        List<ProductTransfer> insertedTransfers = [SELECT Id, Status FROM ProductTransfer];
+
+        System.assertEquals(2, insertedTransfers.size());
+
+        for (ProductTransfer pt : insertedTransfers) {
+            System.assert(pt.Status == 'In Progress' || pt.Status == 'Completed');
+        }
+        
+        Test.stopTest();
+    }
+}

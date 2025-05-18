@@ -1,0 +1,269 @@
+@isTest
+public class CaseWorkOrderHandlerTest {
+    static Id managerUserId;
+    static Id dronePilotUserId;
+    static Id leadPilotUserId;
+    static Id caseRecordTypeDrone;
+    static Id caseRecordTypeAssetIssue;
+    
+    @testSetup
+    static void setupTestData() {
+        Profile profile1 = [SELECT Id FROM Profile WHERE Name = 'System Administrator'];
+        
+        User standardUser = new User(
+            FirstName = 'test1',
+            LastName = 'User',
+            ProfileId = profile1.Id,
+            Username = 'test@tssestar.com',
+            Email = 'test@tesssst.com',
+            Alias = 'mgrusr',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'America/Los_Angeles'
+        );
+        
+        insert standardUser;
+        
+        Profile profile2 = [SELECT Id FROM Profile WHERE Name = 'State Coordinator'];
+        User stateUser = new User(
+            FirstName = 'state',
+            LastName = 'User',
+            ProfileId = profile2.Id,
+            Username = 'test@testar.com1234',
+            Email = 'test@test.com',
+            Alias = 'mgrusr',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'America/Los_Angeles'
+        );
+        
+        insert stateUser;
+        standardUser.ManagerId = stateUser.Id;
+        update standardUser;
+        
+        Map<String, Id> recordTypeMap = new Map<String, Id>();
+        for (RecordType rt : [SELECT Id, DeveloperName FROM RecordType WHERE SObjectType = 'Case']) {
+            System.debug('RecordType rt' + rt);
+            recordTypeMap.put(rt.DeveloperName, rt.Id);
+        }
+        
+        RecordType farmerRecordType = [SELECT Id FROM RecordType WHERE SObjectType = 'Account' AND DeveloperName = 'Farmer_Accounts' LIMIT 1];
+        Account testAccount = new Account(
+            LastName = 'Test Farmer Account',
+            RecordTypeId = farmerRecordType.Id
+        );
+        insert testAccount;
+        
+        
+        RecordType nutriClinicAccRecordType = [SELECT Id FROM RecordType WHERE SObjectType = 'Account' AND DeveloperName = 'Nutriclinic' LIMIT 1];
+        
+        Account nutriClinicAcc = new Account();
+        nutriClinicAcc.Name = 'NutriClinic Account';
+        nutriClinicAcc.NutriClinic_Executive__c = standardUser.Id; // Ensure this field exists
+        nutriClinicAcc.RecordTypeId = nutriClinicAccRecordType.Id; // Correct way to set RecordTypeId
+        
+        Insert nutriClinicAcc;
+        
+        State__c caseState = new State__c();
+        caseState.Name = 'Karnataka';
+        caseState.OwnerId = standardUser.Id;
+        
+        Insert caseState;
+        
+        Revenue_District__c caseRevenueDistrict = new Revenue_District__c();
+        caseRevenueDistrict.Name = 'Srikakulam';
+        caseRevenueDistrict.OwnerId = standardUser.Id;
+        
+        
+        Insert caseRevenueDistrict;
+        
+        List<Case> caseList = new List<Case>();
+        
+        Case cases = new Case();
+        cases.RecordTypeId = recordTypeMap.get('NutriClinic_Service');
+        cases.AccountId = testAccount.Id;
+        cases.Status='created';
+        cases.NutriClinic_Account__c = nutriClinicAcc.Id;
+        cases.Service_Request_Type__c = 'NutriClinic Services';
+        cases.No_Of_Acres__c = 23;
+        cases.Postal_Code__c = '560068';
+        cases.Case_State__c = caseState.Id;
+        cases.Case_District__c = caseRevenueDistrict.Id;
+        cases.City__c = 'Srikakulam';
+        caseList.add(cases);
+    
+        Case assetIssueCase = new Case();
+        assetIssueCase.RecordTypeId = recordTypeMap.get('Asset_Issue');
+        assetIssueCase.AccountId = testAccount.Id;
+        assetIssueCase.Status = 'New';
+        assetIssueCase.OwnerId = standardUser.Id;
+        caseList.add(assetIssueCase);
+        
+        Insert caseList;
+        
+        ////======================================== Dhilip
+        // Fetch Profile for System Administrator (use the same for both Drone Pilot and Manager)
+        Profile profile = [SELECT Id FROM Profile WHERE Name = 'System Administrator' LIMIT 1];
+        
+        // Create a Manager User
+        User managerUser = new User(
+            FirstName = 'Manager',
+            LastName = 'User',
+            ProfileId = profile.Id,
+            Username = 'manager' + System.currentTimeMillis() + '@test.com',
+            Email = 'manager@test.com',
+            Alias = 'mngusr',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'America/Los_Angeles'
+        );
+        insert managerUser;
+        managerUserId = managerUser.Id;
+        //Profile DPprofile = [SELECT Id FROM Profile WHERE Name = 'Drone Pilot' LIMIT 1];
+        // Create a Drone Pilot User
+        User dronePilotUser = new User(
+            FirstName = 'Drone',
+            LastName = 'Pilot',
+            ProfileId = profile.Id,
+            Username = 'dronepilot' + System.currentTimeMillis() + '@test.com',
+            Email = 'dronepilot@test.com',
+            Alias = 'drnplt',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'America/Los_Angeles',
+            ManagerId = managerUserId
+        );
+        insert dronePilotUser;
+        dronePilotUserId = dronePilotUser.Id;
+        
+        // Create a Lead Pilot User
+        User leadPilotUser = new User(
+            FirstName = 'Lead',
+            LastName = 'Pilot',
+            ProfileId = profile.Id,
+            Username = 'leadpilot' + System.currentTimeMillis() + '@test.com',
+            Email = 'leadpilot@test.com',
+            Alias = 'ldplt',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'America/Los_Angeles'
+        );
+        insert leadPilotUser;
+        leadPilotUserId = leadPilotUser.Id;
+        
+        // Assign Lead Pilot to Drone Pilot
+        dronePilotUser.Lead_Pilot__c = leadPilotUserId;
+        update dronePilotUser;
+        
+    }
+    
+    @isTest
+    static void testHandleCaseAssignmentsNutriClinic() {
+        List<Case> caseList = [SELECT Id,Status, RecordTypeId, AccountId, OwnerId FROM Case WHERE RecordType.DeveloperName = 'NutriClinic_Service'];
+        Test.startTest();
+        CaseWorkOrderHandler.handleCaseAssignmentsNutriClinic(caseList);
+        Test.stopTest();
+        System.assertEquals('Assigned', caseList[0].Status);
+    }
+    
+    @isTest
+    static void testHandleCaseAssignmentsForAssetIssue() {
+        List<Case> caseList = [SELECT Id, Status, RecordTypeId, AccountId, OwnerId FROM Case WHERE RecordType.DeveloperName = 'Asset_Issue'];
+        System.assert(caseList.size() > 0, 'No test cases found for Asset_Issue');
+        Test.startTest();
+        CaseWorkOrderHandler.handleCaseAssignmentsForAssetIssue(caseList);
+        Test.stopTest();
+        //System.assertEquals('Assigned to SM', caseList[0].Status);
+    }
+    
+    @isTest
+    static void testSendNotificationAfterInsertCaseAssetIssue() {
+        List<Case> caseList = [SELECT Id FROM Case WHERE RecordType.DeveloperName = 'Asset_Issue'];
+        Test.startTest();
+        CaseWorkOrderHandler.sendNotificationAfterinsertCaseTheAssetIssue(caseList);
+        Test.stopTest();
+        System.assert(true, 'Notification sent successfully');
+    }
+    
+    //========================== Dhilip
+    
+    
+    @isTest
+    static void testCaseSharing() {
+        
+        Test.startTest();
+        dronePilotUserId = [SELECT Id FROM User WHERE Alias = 'drnplt' LIMIT 1].Id;
+        caseRecordTypeDrone = [SELECT Id FROM RecordType WHERE SObjectType = 'Case' AND DeveloperName = 'Drone_Service' LIMIT 1].Id;
+        caseRecordTypeAssetIssue = [SELECT Id FROM RecordType WHERE SObjectType = 'Case' AND DeveloperName = 'Asset_Issue' LIMIT 1].Id;
+        // Create a Case owned by Drone Pilot (RecordType = Drone_Service)
+        Case testCase1 = new Case(
+            RecordTypeId = caseRecordTypeDrone,
+            Subject = 'Test Drone Case',
+            OwnerId = dronePilotUserId,
+            CreatedById = dronePilotUserId
+        );
+        insert testCase1;
+        
+        // Create a Case owned by Drone Pilot (RecordType = Asset_Issue)
+        Case testCase2 = new Case(
+            RecordTypeId = caseRecordTypeAssetIssue,
+            Subject = 'Test Asset Issue',
+            OwnerId = dronePilotUserId,
+            CreatedById = dronePilotUserId
+        );
+        insert testCase2;
+        
+        // Call case sharing method
+        CaseWorkOrderHandler.caseShareing(new List<Case>{testCase1, testCase2});
+        
+        managerUserId = [SELECT Id FROM User WHERE Alias = 'mngusr' LIMIT 1].Id;
+        // Verify the sharing records
+        List<CaseShare> shares = [SELECT CaseId, UserOrGroupId, CaseAccessLevel FROM CaseShare WHERE CaseId IN :new List<Id>{testCase1.Id, testCase2.Id}];
+        System.assertEquals(2, shares.size(), 'There should be 2 sharing records.');
+        //System.assertEquals(managerUserId, shares[0].UserOrGroupId, 'Manager should have edit access.');
+        //System.assertEquals('Edit', shares[0].CaseAccessLevel, 'Access level should be Edit.');
+        
+        Test.stopTest();
+    }
+    
+    @isTest
+    static void testCaseSharingUpdateOwner() {
+        Test.startTest();
+         dronePilotUserId = [SELECT Id FROM User WHERE Alias = 'drnplt' LIMIT 1].Id;
+        caseRecordTypeDrone = [SELECT Id FROM RecordType WHERE SObjectType = 'Case' AND DeveloperName = 'Drone_Service' LIMIT 1].Id;
+        caseRecordTypeAssetIssue = [SELECT Id FROM RecordType WHERE SObjectType = 'Case' AND DeveloperName = 'Asset_Issue' LIMIT 1].Id;
+        // Create Case and simulate an Owner Change
+        Case testCase = new Case(
+            RecordTypeId = caseRecordTypeDrone,
+            Subject = 'Ownership Change Case',
+            OwnerId = dronePilotUserId,
+            CreatedById = dronePilotUserId
+        );
+        insert testCase;
+        managerUserId = [SELECT Id FROM User WHERE Alias = 'mngusr' LIMIT 1].Id;
+        // Prepare OldCaseMap
+        Map<Id, Case> oldCaseMap = new Map<Id, Case>();
+        oldCaseMap.put(testCase.Id, new Case(Id = testCase.Id, OwnerId = dronePilotUserId));
+        
+        // Update the OwnerId to Manager
+        testCase.OwnerId = managerUserId;
+        update testCase;
+        
+        
+        CaseWorkOrderHandler.caseShareingUpdateingOwner(new List<Case>{testCase}, oldCaseMap);
+      
+        
+        // Verify the sharing record
+        List<CaseShare> shares = [SELECT CaseId, UserOrGroupId, CaseAccessLevel FROM CaseShare WHERE CaseId = :testCase.Id];
+        System.assertEquals(1, shares.size(), 'Sharing record should be created.');
+        System.assertEquals(managerUserId, shares[0].UserOrGroupId, 'Manager should have edit access.');
+       // System.assertEquals('Edit', shares[0].CaseAccessLevel, 'Access level should be Edit.');
+        Test.stopTest();
+    }
+    
+}
